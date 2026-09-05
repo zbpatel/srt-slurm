@@ -18,6 +18,75 @@ if [ ! -r "$template" ]; then
 fi
 
 mkdir -p "$output_dir"
+
+# A Slurm time-limit recovery may seed only the evaluator's completed-work
+# cache into a new submission-scoped output directory.  Both harnesses are
+# explicitly resume-safe: simple-evals reads its response cache, while NeMo
+# Skills launches generation with skip_filled=True and retains async position
+# IDs until the final ordered file is complete.
+if [ -n "${RECOVERY_ACCURACY_DIR:-}" ]; then
+    if [ ! -d "$RECOVERY_ACCURACY_DIR" ]; then
+        echo "Recovery accuracy directory does not exist: $RECOVERY_ACCURACY_DIR" >&2
+        exit 2
+    fi
+
+    case "$task_name" in
+        mmlu_pro_aa_v3)
+            recovery_source="$RECOVERY_ACCURACY_DIR/mmlu_pro_aa_v3/cache"
+            recovery_target="$output_dir/mmlu_pro_aa_v3/cache"
+            ;;
+        ns_aa_lcr)
+            recovery_source="$RECOVERY_ACCURACY_DIR/tmp-eval-results/aalcr"
+            recovery_target="$output_dir/tmp-eval-results/aalcr"
+            ;;
+        *)
+            echo "Recovery is not configured for task: $task_name" >&2
+            exit 2
+            ;;
+    esac
+
+    if [ ! -d "$recovery_source" ]; then
+        echo "Recovery source does not exist: $recovery_source" >&2
+        exit 2
+    fi
+    mkdir -p "$recovery_target"
+    cp -a "$recovery_source/." "$recovery_target/"
+
+    if [ "$task_name" = "mmlu_pro_aa_v3" ]; then
+        python3 - "$recovery_target/cache.sqlite/cache.db" <<'PY'
+import sqlite3
+import sys
+
+db = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+result = db.execute("PRAGMA quick_check").fetchone()[0]
+db.close()
+if result != "ok":
+    raise SystemExit(f"Recovered simple-evals cache failed SQLite quick_check: {result}")
+print("Recovered simple-evals cache passed SQLite quick_check")
+PY
+    else
+        python3 - "$recovery_target" <<'PY'
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+total = 0
+for path in sorted(root.glob("output-rs*.jsonl-async")):
+    positions = []
+    with path.open(encoding="utf-8") as stream:
+        for line in stream:
+            positions.append(json.loads(line)["_async_position"])
+    if len(positions) != len(set(positions)):
+        raise SystemExit(f"Duplicate async positions in recovered file: {path.name}")
+    total += len(positions)
+if total == 0:
+    raise SystemExit("Recovered AA-LCR output contains no completed generations")
+print(f"Recovered {total} completed AA-LCR generations with unique async positions")
+PY
+    fi
+fi
+
 sed \
     -e "s|__SRT_TARGET_URL__|${target_url}|g" \
     -e "s|__NEL_OUTPUT_DIR__|${output_dir}|g" \
