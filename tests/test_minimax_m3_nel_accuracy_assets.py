@@ -64,9 +64,11 @@ def test_aa_lcr_sampling_repeats_and_authorized_judge() -> None:
     assert params["temperature"] == 1.0
     assert params["top_p"] == 0.95
     assert params["max_new_tokens"] == 65536
+    assert params["parallelism"] == 64
     assert params["extra"]["num_repeats"] == 16
     assert judge["model_id"] == "nvidia/qwen/eccn-qwen-235b"
     assert judge["api_key"] == "INFERENCE_API_KEY"
+    assert judge["parallelism"] == 64
     assert "nvapi-" not in (ASSET_DIR / "ns_aa_lcr.eval-factory.yaml").read_text()
     _assert_minimax_reasoning(config)
 

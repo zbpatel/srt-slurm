@@ -8,7 +8,8 @@ frontend URL and the run-local output directory.
 Both tasks use MiniMax-M3 thinking mode, strip and track
 `<mm:think>...</mm:think>`, and generate with temperature `1.0`, top-p `0.95`,
 and a 65,536-token cap.  MMLU-Pro uses the AA-v3 task with one sample.
-AA-LCR uses 16 samples and the authorized
+AA-LCR uses 16 samples with 64-way generation and judge dispatch, matching the
+observed headroom of the TP4 server, and the authorized
 `nvidia/qwen/eccn-qwen-235b` judge.  The judge credential must be exposed as a
 read-only `JUDGE_API_KEY_FILE`; the runner reads it without copying the secret
 into results.

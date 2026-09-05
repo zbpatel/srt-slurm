@@ -6,14 +6,14 @@ config:
         api_key: INFERENCE_API_KEY
         max_new_tokens: 4096
         model_id: nvidia/qwen/eccn-qwen-235b
-        parallelism: 16
+        parallelism: 64
         temperature: 0.0
         top_p: 1.0
         url: https://inference-api.nvidia.com/v1
       num_repeats: 16
     max_new_tokens: 65536
     max_retries: 10
-    parallelism: 16
+    parallelism: 64
     request_timeout: 3600
     temperature: 1.0
     top_p: 0.95
