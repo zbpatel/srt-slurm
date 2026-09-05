@@ -51,6 +51,7 @@ def test_mmlu_pro_aa_v3_sampling_and_methodology() -> None:
     assert params["temperature"] == 1.0
     assert params["top_p"] == 0.95
     assert params["max_new_tokens"] == 65536
+    assert params["parallelism"] == 64
     assert params["extra"]["n_samples"] == 1
     _assert_minimax_reasoning(config)
 
