@@ -1,0 +1,76 @@
+config:
+  output_dir: __NEL_OUTPUT_DIR__
+  params:
+    extra:
+      agent_args: null
+      cache:
+        cache_dir: __NEL_OUTPUT_DIR__/.cache/llm_cache
+        enabled: true
+      judge:
+        api_key: JUDGE_API_KEY
+        enabled: false
+        max_new_tokens: 16000
+        model_id: openai/gpt-oss-120b
+        request_timeout: 3600
+        system_prompt: Reasoning:medium
+        temperature: 0.6
+        top_p: 0.95
+        url: https://inference-api.nvidia.com/v1
+      judge_window_size: 30
+      max_steps: 100
+      n_samples: 3
+      skip_failed_samples: false
+      user:
+        api_key: INFERENCE_API_KEY
+        args: null
+        max_new_tokens: 4096
+        model_id: nvidia/qwen/eccn-qwen-235b
+        request_timeout: 3600
+        temperature: 0.0
+        top_p: 1.0
+        url: https://inference-api.nvidia.com/v1
+    max_new_tokens: 65536
+    max_retries: 30
+    parallelism: 64
+    request_timeout: 3600
+    temperature: 1.0
+    top_p: 0.95
+  type: tau2_bench_telecom
+metadata:
+  source: nemo-evaluator-launcher-dry-run
+  versioning:
+    nemo_evaluator_launcher: 0.2.7+20260902.673edc82
+    nemo_evaluator_launcher_internal: 0.3.178+20260805
+target:
+  api_endpoint:
+    adapter_config:
+      interceptors:
+        - config:
+            max_requests: 20
+            output_dir: __NEL_OUTPUT_DIR__
+          name: request_logging
+        - config:
+            params_to_add:
+              chat_template_kwargs:
+                thinking_mode: enabled
+          name: payload_modifier
+        - name: endpoint
+        - config:
+            enable_reasoning_tracking: true
+            end_reasoning_token: </mm:think>
+            include_if_not_finished: true
+            start_reasoning_token: <mm:think>
+          name: reasoning
+        - config:
+            max_responses: 20
+            output_dir: __NEL_OUTPUT_DIR__
+          name: response_logging
+      post_eval_hooks:
+        - config:
+            html_report_size: 5
+            report_types: [html, json]
+          name: post_eval_report
+    model_id: nvidia/MiniMax-M3-NVFP4
+    stream: false
+    type: chat
+    url: __SRT_TARGET_URL__

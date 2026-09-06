@@ -1,0 +1,80 @@
+config:
+  output_dir: __NEL_OUTPUT_DIR__
+  params:
+    extra:
+      args: null
+      data_dir: null
+      dataset_split: null
+      judge:
+        api_key: null
+        args: null
+        generation_type: null
+        hle_strict_judge: false
+        max_new_tokens: null
+        model_id: null
+        parallelism: null
+        prompt_config: null
+        random_seed: 1234
+        temperature: null
+        top_p: null
+        url: null
+      judge_support: false
+      num_repeats: null
+      prompt_config: null
+      ruler:
+        cluster: null
+        data_dir: null
+        max_seq_length: null
+        num_samples: null
+        setup: null
+        tasks: null
+        template_tokens: null
+        tokenizer_path: null
+      server_type: null
+      skip_data_dir_check: false
+      system_message: null
+      use_sandbox: true
+    max_new_tokens: 65536
+    max_retries: 10
+    parallelism: 16
+    request_timeout: 3600
+    temperature: 1.0
+    top_p: 0.95
+  type: ns_scicode
+metadata:
+  source: nemo-evaluator-launcher-dry-run
+  versioning:
+    nemo_evaluator_launcher: 0.2.7+20260902.673edc82
+    nemo_evaluator_launcher_internal: 0.3.178+20260805
+target:
+  api_endpoint:
+    adapter_config:
+      interceptors:
+        - config:
+            max_requests: 20
+            output_dir: __NEL_OUTPUT_DIR__
+          name: request_logging
+        - config:
+            params_to_add:
+              chat_template_kwargs:
+                thinking_mode: enabled
+          name: payload_modifier
+        - name: endpoint
+        - config:
+            enable_reasoning_tracking: true
+            end_reasoning_token: </mm:think>
+            include_if_not_finished: true
+            start_reasoning_token: <mm:think>
+          name: reasoning
+        - config:
+            max_responses: 20
+            output_dir: __NEL_OUTPUT_DIR__
+          name: response_logging
+      post_eval_hooks:
+        - config:
+            html_report_size: 5
+            report_types: [html, json]
+          name: post_eval_report
+    model_id: nvidia/MiniMax-M3-NVFP4
+    type: chat
+    url: __SRT_TARGET_URL__

@@ -73,7 +73,56 @@ def test_aa_lcr_sampling_repeats_and_authorized_judge() -> None:
     _assert_minimax_reasoning(config)
 
 
+def test_gpqa_diamond_sampling_repeats_and_methodology() -> None:
+    config = _load("gpqa_diamond_aa_v3.eval-factory.yaml")
+    params = config["config"]["params"]
+    assert config["config"]["type"] == "gpqa_diamond_aa_v3"
+    assert params["temperature"] == 1.0
+    assert params["top_p"] == 0.95
+    assert params["max_new_tokens"] == 65536
+    assert params["parallelism"] == 128
+    assert params["extra"]["n_samples"] == 16
+    _assert_minimax_reasoning(config)
+
+
+def test_tau2_telecom_sampling_trials_and_authorized_user_simulator() -> None:
+    config = _load("tau2_bench_telecom.eval-factory.yaml")
+    params = config["config"]["params"]
+    user = params["extra"]["user"]
+    assert config["config"]["type"] == "tau2_bench_telecom"
+    assert params["temperature"] == 1.0
+    assert params["top_p"] == 0.95
+    assert params["max_new_tokens"] == 65536
+    assert params["parallelism"] == 64
+    assert params["extra"]["n_samples"] == 3
+    assert params["extra"]["max_steps"] == 100
+    assert params["extra"]["judge"]["enabled"] is False
+    assert user["model_id"] == "nvidia/qwen/eccn-qwen-235b"
+    assert user["api_key"] == "INFERENCE_API_KEY"
+    assert user["temperature"] == 0.0
+    assert user["top_p"] == 1.0
+    assert config["target"]["api_endpoint"]["stream"] is False
+    _assert_minimax_reasoning(config)
+
+
+def test_scicode_sampling_and_local_sandbox_contract() -> None:
+    config = _load("ns_scicode.eval-factory.yaml")
+    params = config["config"]["params"]
+    assert config["config"]["type"] == "ns_scicode"
+    assert params["temperature"] == 1.0
+    assert params["top_p"] == 0.95
+    assert params["max_new_tokens"] == 65536
+    assert params["parallelism"] == 16
+    assert params["extra"]["use_sandbox"] is True
+    assert params["extra"]["num_repeats"] is None
+    assert params["extra"]["judge_support"] is False
+    _assert_minimax_reasoning(config)
+
+
 def test_nel_runner_is_valid_shell_and_does_not_enable_xtrace() -> None:
     script = ASSET_DIR / "run_nel_eval.sh"
     subprocess.run(["bash", "-n", str(script)], check=True)
     assert "set -x" not in script.read_text()
+    text = script.read_text()
+    assert "tau2 structured tool-call and tool-result continuation gate passed" in text
+    assert "SciCode local sandbox scored code-execution gate passed" in text
