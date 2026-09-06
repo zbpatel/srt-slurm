@@ -7,8 +7,9 @@ frontend URL and the run-local output directory.
 
 All tasks use MiniMax-M3 thinking mode, strip and track
 `<mm:think>...</mm:think>`, and generate with temperature `1.0`, top-p `0.95`,
-and a 65,536-token cap. MMLU-Pro uses the AA-v3 task with one sample.
-GPQA-Diamond uses the AA-v3 task with 16 samples and 128-way dispatch. AA-LCR
+and a 65,536-token cap. MMMU-Pro uses the canonical vision task at pass@1 with
+128-way dispatch and must pass both a single-image and concurrent-image API
+gate. GPQA-Diamond uses the AA-v3 task with 16 samples and 128-way dispatch. AA-LCR
 uses 16 samples with 64-way generation and judge dispatch, matching the
 observed headroom of the TP4 server, and the authorized
 `nvidia/qwen/eccn-qwen-235b` judge.  The judge credential must be exposed as a

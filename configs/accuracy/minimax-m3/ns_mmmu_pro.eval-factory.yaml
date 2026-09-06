@@ -2,14 +2,45 @@ config:
   output_dir: __NEL_OUTPUT_DIR__
   params:
     extra:
-      n_samples: 1
+      args: null
+      data_dir: null
+      dataset_split: null
+      judge:
+        api_key: null
+        args: null
+        generation_type: null
+        hle_strict_judge: false
+        max_new_tokens: null
+        model_id: null
+        parallelism: null
+        prompt_config: null
+        random_seed: 1234
+        temperature: null
+        top_p: null
+        url: null
+      judge_support: false
+      num_repeats: null
+      prompt_config: null
+      ruler:
+        cluster: null
+        data_dir: null
+        max_seq_length: null
+        num_samples: null
+        setup: null
+        tasks: null
+        template_tokens: null
+        tokenizer_path: null
+      server_type: vllm
+      skip_data_dir_check: true
+      system_message: null
+      use_sandbox: false
     max_new_tokens: 65536
     max_retries: 10
     parallelism: 128
     request_timeout: 3600
     temperature: 1.0
     top_p: 0.95
-  type: mmlu_pro_aa_v3
+  type: ns_mmmu_pro
 metadata:
   source: nemo-evaluator-launcher-dry-run
   versioning:

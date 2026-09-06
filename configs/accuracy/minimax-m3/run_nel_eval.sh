@@ -31,7 +31,7 @@ if [ -n "${RECOVERY_ACCURACY_DIR:-}" ]; then
     fi
 
     case "$task_name" in
-        mmlu_pro_aa_v3|gpqa_diamond_aa_v3)
+        gpqa_diamond_aa_v3)
             recovery_source="$RECOVERY_ACCURACY_DIR/${task_name}/cache"
             recovery_target="$output_dir/${task_name}/cache"
             ;;
@@ -39,9 +39,14 @@ if [ -n "${RECOVERY_ACCURACY_DIR:-}" ]; then
             recovery_source="$RECOVERY_ACCURACY_DIR/tmp-eval-results/aalcr"
             recovery_target="$output_dir/tmp-eval-results/aalcr"
             ;;
-        ns_scicode)
-            recovery_source="$RECOVERY_ACCURACY_DIR/eval-results/scicode"
-            recovery_target="$output_dir/eval-results/scicode"
+        ns_mmmu_pro|ns_scicode)
+            if [ "$task_name" = "ns_mmmu_pro" ]; then
+                recovery_dataset="mmmu-pro"
+            else
+                recovery_dataset="scicode"
+            fi
+            recovery_source="$RECOVERY_ACCURACY_DIR/eval-results/${recovery_dataset}"
+            recovery_target="$output_dir/eval-results/${recovery_dataset}"
             ;;
         *)
             echo "Recovery is not configured for task: $task_name" >&2
@@ -56,7 +61,7 @@ if [ -n "${RECOVERY_ACCURACY_DIR:-}" ]; then
     mkdir -p "$recovery_target"
     cp -a "$recovery_source/." "$recovery_target/"
 
-    if [ "$task_name" = "mmlu_pro_aa_v3" ] || [ "$task_name" = "gpqa_diamond_aa_v3" ]; then
+    if [ "$task_name" = "gpqa_diamond_aa_v3" ]; then
         python3 - "$recovery_target/cache.sqlite/cache.db" <<'PY'
 import sqlite3
 import sys
@@ -88,7 +93,7 @@ if total == 0:
     raise SystemExit("Recovered AA-LCR output contains no completed generations")
 print(f"Recovered {total} completed AA-LCR generations with unique async positions")
 PY
-    else
+    elif [ "$task_name" = "ns_scicode" ] || [ "$task_name" = "ns_mmmu_pro" ]; then
         python3 - "$recovery_target/output.jsonl-async" <<'PY'
 import json
 import pathlib
@@ -100,10 +105,10 @@ with path.open(encoding="utf-8") as stream:
     for line in stream:
         positions.append(json.loads(line)["_async_position"])
 if not positions:
-    raise SystemExit("Recovered SciCode output contains no completed generations")
+    raise SystemExit("Recovered NeMo Skills output contains no completed generations")
 if len(positions) != len(set(positions)):
-    raise SystemExit("Duplicate async positions in recovered SciCode output")
-print(f"Recovered {len(positions)} completed SciCode generations with unique async positions")
+    raise SystemExit("Duplicate async positions in recovered NeMo Skills output")
+print(f"Recovered {len(positions)} completed NeMo Skills generations with unique async positions")
 PY
     fi
 fi
@@ -133,6 +138,151 @@ if [ "$task_name" = "gpqa_diamond_aa_v3" ]; then
         echo "Hugging Face token file is empty" >&2
         exit 2
     fi
+fi
+
+# Synthetic acceptance can make a benchmark look operational while corrupting
+# generated token streams.  Before any expensive evaluation, exercise the exact
+# thinking-enabled endpoint and fail closed on NUL bytes, truncation, or an
+# empty final answer.  The response is retained as submission-scoped evidence.
+python3 - "$target_url" "${output_dir}/endpoint-integrity-response.json" <<'PY'
+import json
+import pathlib
+import sys
+import time
+import urllib.error
+import urllib.request
+
+url = sys.argv[1]
+capture_path = pathlib.Path(sys.argv[2])
+payload = {
+    "model": "nvidia/MiniMax-M3-NVFP4",
+    "messages": [{"role": "user", "content": "Reply with exactly OK."}],
+    "temperature": 0.0,
+    "max_tokens": 4096,
+    "chat_template_kwargs": {"thinking_mode": "enabled"},
+}
+
+for attempt in range(60):
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=600) as response:
+            result = json.loads(response.read())
+        break
+    except urllib.error.HTTPError as error:
+        if error.code not in {404, 503} or attempt == 59:
+            raise
+        time.sleep(2)
+else:
+    raise SystemExit("target model route did not become ready")
+
+capture_path.write_text(json.dumps(result, indent=2) + "\n")
+serialized = json.dumps(result, ensure_ascii=False)
+if "\x00" in serialized:
+    raise SystemExit("endpoint integrity gate found a NUL byte in the response")
+choices = result.get("choices") or []
+if not choices:
+    raise SystemExit("endpoint integrity gate returned no choice")
+choice = choices[0]
+if choice.get("finish_reason") == "length":
+    raise SystemExit("endpoint integrity gate exhausted its 4096-token cap")
+message = choice.get("message") or {}
+if not str(message.get("content") or "").strip():
+    raise SystemExit("endpoint integrity gate returned an empty final answer")
+print("thinking-enabled endpoint integrity gate passed with no NUL corruption")
+PY
+
+# MMMU-Pro is a native vision benchmark.  A text-only health check cannot
+# validate its contract, so require one real OpenAI image request followed by
+# four concurrent image requests before dataset preparation and dispatch.
+if [ "$task_name" = "ns_mmmu_pro" ]; then
+    python3 - "$target_url" "$output_dir" <<'PY'
+import concurrent.futures
+import json
+import pathlib
+import sys
+import time
+import urllib.error
+import urllib.request
+
+url = sys.argv[1]
+output_dir = pathlib.Path(sys.argv[2])
+red_png = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR4nO3NsQ0AAAzCMP5/un0CNkuZ41wybXsHAAAAAAAAAAAAxR4yw/wuPL6QkAAAAABJRU5ErkJggg=="
+payload = {
+    "model": "nvidia/MiniMax-M3-NVFP4",
+    "messages": [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/png;base64,{red_png}",
+                        "detail": "low",
+                    },
+                },
+                {
+                    "type": "text",
+                    "text": "What is the dominant color? End with Answer: red.",
+                },
+            ],
+        }
+    ],
+    "temperature": 0.0,
+    "max_tokens": 4096,
+    "chat_template_kwargs": {"thinking_mode": "enabled"},
+}
+
+
+def complete():
+    for attempt in range(60):
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=600) as response:
+                return json.loads(response.read())
+        except urllib.error.HTTPError as error:
+            if error.code not in {404, 503} or attempt == 59:
+                raise
+            time.sleep(2)
+    raise RuntimeError("target model route did not become ready")
+
+
+def validate(result, label):
+    serialized = json.dumps(result, ensure_ascii=False)
+    if "\x00" in serialized:
+        raise RuntimeError(f"{label} contains a NUL byte")
+    choices = result.get("choices") or []
+    if not choices:
+        raise RuntimeError(f"{label} returned no choice")
+    choice = choices[0]
+    if choice.get("finish_reason") == "length":
+        raise RuntimeError(f"{label} exhausted its 4096-token cap")
+    if not str((choice.get("message") or {}).get("content") or "").strip():
+        raise RuntimeError(f"{label} returned an empty final answer")
+
+
+single = complete()
+validate(single, "single-image canary")
+(output_dir / "mmmu-single-image-response.json").write_text(
+    json.dumps(single, indent=2) + "\n"
+)
+
+with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+    concurrent_results = list(executor.map(lambda _: complete(), range(4)))
+for index, result in enumerate(concurrent_results):
+    validate(result, f"concurrent-image canary {index}")
+    (output_dir / f"mmmu-concurrent-image-response-{index}.json").write_text(
+        json.dumps(result, indent=2) + "\n"
+    )
+print("MMMU-Pro single-image and four-way concurrent-image gates passed")
+PY
 fi
 
 # AA-LCR uses an external judge and tau2 Telecom uses the same authorized
@@ -329,3 +479,4 @@ fi
 
 evaluator=$(command -v nemo-evaluator || command -v eval-factory)
 "$evaluator" run_eval --run_config "$resolved_config"
+python3 /configs/accuracy/minimax-m3/validate_nel_accuracy.py "$output_dir" "$task_name"

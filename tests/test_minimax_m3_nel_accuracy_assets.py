@@ -46,15 +46,18 @@ def _assert_minimax_reasoning(config: dict) -> None:
     assert endpoint["url"] == "__SRT_TARGET_URL__"
 
 
-def test_mmlu_pro_aa_v3_sampling_and_methodology() -> None:
-    config = _load("mmlu_pro_aa_v3.eval-factory.yaml")
+def test_mmmu_pro_sampling_and_multimodal_methodology() -> None:
+    config = _load("ns_mmmu_pro.eval-factory.yaml")
     params = config["config"]["params"]
-    assert config["config"]["type"] == "mmlu_pro_aa_v3"
+    assert config["config"]["type"] == "ns_mmmu_pro"
     assert params["temperature"] == 1.0
     assert params["top_p"] == 0.95
     assert params["max_new_tokens"] == 65536
     assert params["parallelism"] == 128
-    assert params["extra"]["n_samples"] == 1
+    assert params["extra"]["num_repeats"] is None
+    assert params["extra"]["use_sandbox"] is False
+    assert params["extra"]["server_type"] == "vllm"
+    assert params["extra"]["skip_data_dir_check"] is True
     _assert_minimax_reasoning(config)
 
 
@@ -133,8 +136,25 @@ def test_nel_runner_is_valid_shell_and_does_not_enable_xtrace() -> None:
     assert "proceeding to the full benchmark so this model behavior is scored" in text
     assert "tool-capability-first-response.json" in text
     assert "SciCode local sandbox scored code-execution gate passed" in text
-    assert 'recovery_source="$RECOVERY_ACCURACY_DIR/eval-results/scicode"' in text
-    assert "Recovered {len(positions)} completed SciCode generations" in text
+    assert 'recovery_source="$RECOVERY_ACCURACY_DIR/eval-results/${recovery_dataset}"' in text
+    assert "Recovered {len(positions)} completed NeMo Skills generations" in text
+    assert "endpoint integrity gate passed with no NUL corruption" in text
+    assert 'if [ "$task_name" = "ns_mmmu_pro" ]' in text
+    assert "MMMU-Pro single-image and four-way concurrent-image gates passed" in text
+    assert '"type": "image_url"' in text
+    assert "ThreadPoolExecutor(max_workers=4)" in text
+    assert "validate_nel_accuracy.py" in text
+
+
+def test_accuracy_validator_is_valid_python_and_fail_closed() -> None:
+    validator = ASSET_DIR / "validate_nel_accuracy.py"
+    compile(validator.read_text(), str(validator), "exec")
+    text = validator.read_text()
+    assert "NUL byte found" in text
+    assert ".jsonl-async" in text
+    assert "EXPECTED_GENERATION_COUNT" in text
+    assert "EXPECTED_SIMULATION_COUNT" in text
+    assert "CANONICAL_METRIC" in text
 
 
 def _load_markup_repair():
