@@ -50,6 +50,16 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def load_json_object(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        fail(f"cannot parse JSON artifact {path}: {error}")
+    if not isinstance(value, dict):
+        fail(f"expected a JSON object in {path}")
+    return value
+
+
 def require_count(path: Path, expected: int) -> list[dict[str, Any]]:
     if not path.is_file():
         fail(f"expected output is missing: {path}")
@@ -76,6 +86,9 @@ def load_metric_documents(root: Path) -> list[tuple[Path, Any]]:
     candidates = sorted(root.glob("eval-results/**/metrics.json"))
     candidates += sorted(root.glob("**/eval_factory_metrics.json"))
     candidates += sorted(root.glob("**/results.yml"))
+    # Tau2 writes its canonical aggregate metrics to a native JSON summary,
+    # alongside the Eval Factory results.yml rather than metrics.json.
+    candidates += sorted(root.glob("*_results.json"))
     documents: list[tuple[Path, Any]] = []
     for path in candidates:
         try:
@@ -93,6 +106,8 @@ def require_metric(documents: list[tuple[Path, Any]], metric: str) -> None:
     # documented normalization—not a nearby or substitute score.
     suffixes = {metric}
     suffixes.add(metric.replace("pass@1[avg-of-N]", "pass@1"))
+    if metric == "pass@1.pass@1":
+        suffixes.update({"metrics.pass@1.scores.pass@1", "metrics.pass_at_k.1"})
     for _, document in documents:
         keys = flattened_keys(document)
         if any(
@@ -164,40 +179,62 @@ def validate_scicode(root: Path, documents: list[tuple[Path, Any]]) -> None:
         )
 
 
-def find_numeric_key(value: Any, names: set[str]) -> list[float]:
-    found: list[float] = []
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if key in names and isinstance(child, (int, float)) and not isinstance(child, bool):
-                found.append(float(child))
-            found.extend(find_numeric_key(child, names))
-    elif isinstance(value, list):
-        for child in value:
-            found.extend(find_numeric_key(child, names))
-    return found
-
-
 def validate_telecom(root: Path, documents: list[tuple[Path, Any]]) -> None:
     expected = required_int("EXPECTED_SIMULATION_COUNT")
-    count_keys = {"num_entries", "num_episodes", "num_samples", "num_simulations"}
-    metric_counts = [
-        number
-        for _, document in documents
-        for number in find_numeric_key(document, count_keys)
-    ]
-    if expected in metric_counts:
-        return
-    outputs = [
+    scenarios = required_int("EXPECTED_SCENARIO_COUNT")
+    trials = required_int("EVAL_REPEATS")
+    if scenarios * trials != expected:
+        fail("Telecom expected scenario/trial/simulation counts are inconsistent")
+
+    result_paths = sorted(root.glob("*_results.json"))
+    summary_paths = sorted(root.glob("*_termination_summary.json"))
+    simulation_paths = sorted(
         path
-        for path in root.glob("eval-results/**/*.jsonl")
-        if path.name.startswith("output")
-    ]
-    row_counts = [len(load_jsonl(path)) for path in outputs]
-    if expected not in row_counts and sum(row_counts) != expected:
+        for path in root.glob("*_telecom_llm_agent_*_user_simulator_*.json")
+        if not path.name.endswith(("_results.json", "_termination_summary.json"))
+    )
+    if len(result_paths) != 1 or len(summary_paths) != 1 or len(simulation_paths) != 1:
         fail(
-            f"Telecom produced neither a metric nor final JSONL cardinality of {expected}; "
-            f"metric counts={metric_counts}, output counts={row_counts}"
+            "Telecom must produce exactly one results, termination-summary, and "
+            f"simulation JSON file; got {len(result_paths)}/{len(summary_paths)}/"
+            f"{len(simulation_paths)}"
         )
+    for path in (*result_paths, *summary_paths, *simulation_paths):
+        scan_for_nul(path)
+
+    results = load_json_object(result_paths[0])
+    summary = load_json_object(summary_paths[0])
+    simulation = load_json_object(simulation_paths[0])
+    rows = simulation.get("simulations")
+    if not isinstance(rows, list) or len(rows) != expected:
+        actual = len(rows) if isinstance(rows, list) else "invalid"
+        fail(f"Telecom simulation JSON has {actual} rows; expected {expected}")
+    if results.get("num_tasks") != scenarios or results.get("num_trials") != trials:
+        fail(
+            "Telecom results cardinality is inconsistent: "
+            f"got {results.get('num_tasks')} tasks x {results.get('num_trials')} trials; "
+            f"expected {scenarios} x {trials}"
+        )
+    if results.get("num_simulations") != expected:
+        fail(f"Telecom results report {results.get('num_simulations')} simulations; expected {expected}")
+    if summary.get("total_simulations") != expected or summary.get("skipped_samples") != 0:
+        fail(
+            "Telecom termination summary is incomplete: "
+            f"total={summary.get('total_simulations')}, skipped={summary.get('skipped_samples')}"
+        )
+    identities = {(row.get("task_id"), row.get("trial")) for row in rows if isinstance(row, dict)}
+    if len(identities) != expected or any(
+        not isinstance(row, dict) or row.get("skipped") for row in rows
+    ):
+        fail("Telecom simulations contain duplicate identities, malformed rows, or skipped episodes")
+
+    pass_at_one = results.get("metrics", {}).get("pass_at_k", {}).get("1")
+    avg_reward = results.get("metrics", {}).get("avg_reward")
+    if not all(
+        isinstance(value, (int, float)) and not isinstance(value, bool)
+        for value in (pass_at_one, avg_reward)
+    ):
+        fail("Telecom native results are missing numeric pass@1 or avg_reward")
 
 
 def main() -> None:
@@ -209,7 +246,7 @@ def main() -> None:
         fail(f"output directory does not exist: {root}")
 
     output_files = sorted(root.glob("**/output*.jsonl*"))
-    if not output_files and task != "gpqa_diamond_aa_v3":
+    if not output_files and task not in {"gpqa_diamond_aa_v3", "tau2_bench_telecom"}:
         fail("no evaluator JSONL output files were produced")
     for path in output_files:
         scan_for_nul(path)

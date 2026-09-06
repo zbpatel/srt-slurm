@@ -1,6 +1,9 @@
 import ast
+import json
+import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import yaml
@@ -155,6 +158,55 @@ def test_accuracy_validator_is_valid_python_and_fail_closed() -> None:
     assert "EXPECTED_GENERATION_COUNT" in text
     assert "EXPECTED_SIMULATION_COUNT" in text
     assert "CANONICAL_METRIC" in text
+
+
+def test_accuracy_validator_accepts_complete_tau2_native_outputs(tmp_path: Path) -> None:
+    prefix = "run_telecom_llm_agent_model_user_simulator_model"
+    simulations = [
+        {"task_id": f"task-{task}", "trial": trial, "skipped": False}
+        for trial in range(3)
+        for task in range(114)
+    ]
+    (tmp_path / f"{prefix}.json").write_text(json.dumps({"simulations": simulations}))
+    (tmp_path / f"{prefix}_results.json").write_text(
+        json.dumps(
+            {
+                "num_tasks": 114,
+                "num_trials": 3,
+                "num_simulations": 342,
+                "metrics": {"avg_reward": 0.9, "pass_at_k": {"1": 0.9}},
+            }
+        )
+    )
+    (tmp_path / f"{prefix}_termination_summary.json").write_text(
+        json.dumps({"total_simulations": 342, "skipped_samples": 0})
+    )
+    (tmp_path / "results.yml").write_text(
+        "results:\n  groups:\n    tau2_bench_telecom:\n      metrics:\n"
+        "        pass@1:\n          scores:\n            pass@1:\n              value: 0.9\n"
+        "        avg_reward:\n          scores:\n            avg_reward:\n              value: 0.9\n"
+    )
+    env = {
+        **os.environ,
+        "EXPECTED_SIMULATION_COUNT": "342",
+        "EXPECTED_SCENARIO_COUNT": "114",
+        "EVAL_REPEATS": "3",
+        "CANONICAL_METRIC": "pass@1.pass@1",
+    }
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ASSET_DIR / "validate_nel_accuracy.py"),
+            str(tmp_path),
+            "tau2_bench_telecom",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert completed.returncode == 0, completed.stderr + completed.stdout
+    assert "accuracy validation passed" in completed.stdout
 
 
 def _load_markup_repair():
