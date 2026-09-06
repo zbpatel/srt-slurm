@@ -169,6 +169,18 @@ def test_tolerant_minimax_parser_repairs_only_elided_tool_parameters() -> None:
     assert repair("ordinary answer") == "ordinary answer"
 
 
+def test_dynamo_frontend_sitecustomize_registers_tolerant_parser() -> None:
+    source = (ASSET_DIR / "sitecustomize.py").read_text()
+    tree = ast.parse(source)
+    imports = {
+        alias.name
+        for node in tree.body
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    assert "minimax_m3_tolerant_tool_parser" in imports
+
+
 def test_tolerant_minimax_parser_preserves_tagged_and_repairs_mixed_parameters() -> None:
     repair = _load_markup_repair()
     ns = "]<]minimax[>["
