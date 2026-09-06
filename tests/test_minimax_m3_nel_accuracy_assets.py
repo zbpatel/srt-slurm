@@ -124,6 +124,8 @@ def test_nel_runner_is_valid_shell_and_does_not_enable_xtrace() -> None:
     subprocess.run(["bash", "-n", str(script)], check=True)
     assert "set -x" not in script.read_text()
     text = script.read_text()
+    assert "GPQA access requires HF_TOKEN_FILE" in text
     assert "tau2 structured tool-call and tool-result continuation gate passed" in text
     assert "error.code not in {404, 503}" in text
+    assert '"type": "function", "function": {"name": "lookup_subscriber"}' in text
     assert "SciCode local sandbox scored code-execution gate passed" in text

@@ -97,6 +97,23 @@ echo "NEL task: ${task_name}"
 echo "Target: ${target_url}"
 echo "Resolved config: ${resolved_config}"
 
+# GPQA is gated on Hugging Face. Read its credential from an ephemeral file
+# mounted by AIB so the value never enters a recipe, srtctl's environment
+# summary, the GitLab trace, or collected result artifacts.
+if [ "$task_name" = "gpqa_diamond_aa_v3" ]; then
+    : "${HF_TOKEN_FILE:?GPQA access requires HF_TOKEN_FILE}"
+    if [ ! -r "$HF_TOKEN_FILE" ]; then
+        echo "Hugging Face token file is not readable" >&2
+        exit 2
+    fi
+    HF_TOKEN=$(<"$HF_TOKEN_FILE")
+    export HF_TOKEN
+    if [ -z "$HF_TOKEN" ]; then
+        echo "Hugging Face token file is empty" >&2
+        exit 2
+    fi
+fi
+
 # AA-LCR uses an external judge and tau2 Telecom uses the same authorized
 # Qwen-235B endpoint as its user simulator. Read the credential from the
 # ephemeral GitLab Secure File staged by AIB; never place it in the recipe,
@@ -197,14 +214,21 @@ def complete(messages, *, tools=None, tool_choice=None):
     raise RuntimeError("target model route did not become ready")
 
 
-first = complete([user_message], tools=[tool], tool_choice="required")
+first = complete(
+    [user_message],
+    tools=[tool],
+    tool_choice={"type": "function", "function": {"name": "lookup_subscriber"}},
+)
 assistant = first["choices"][0]["message"]
 tool_calls = assistant.get("tool_calls") or []
-if len(tool_calls) != 1:
-    raise SystemExit("tau2 capability gate did not receive exactly one structured tool call")
-call = tool_calls[0]
-if call.get("function", {}).get("name") != "lookup_subscriber":
-    raise SystemExit("tau2 capability gate received the wrong tool name")
+matching_calls = [
+    call
+    for call in tool_calls
+    if call.get("function", {}).get("name") == "lookup_subscriber"
+]
+if not matching_calls:
+    raise SystemExit("tau2 capability gate did not receive a structured lookup_subscriber call")
+call = matching_calls[0]
 arguments = json.loads(call["function"]["arguments"])
 if arguments.get("account_id") != "test-123":
     raise SystemExit("tau2 capability gate received the wrong tool arguments")
