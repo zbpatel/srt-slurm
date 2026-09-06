@@ -39,6 +39,10 @@ if [ -n "${RECOVERY_ACCURACY_DIR:-}" ]; then
             recovery_source="$RECOVERY_ACCURACY_DIR/tmp-eval-results/aalcr"
             recovery_target="$output_dir/tmp-eval-results/aalcr"
             ;;
+        ns_scicode)
+            recovery_source="$RECOVERY_ACCURACY_DIR/eval-results/scicode"
+            recovery_target="$output_dir/eval-results/scicode"
+            ;;
         *)
             echo "Recovery is not configured for task: $task_name" >&2
             exit 2
@@ -64,7 +68,7 @@ if result != "ok":
     raise SystemExit(f"Recovered simple-evals cache failed SQLite quick_check: {result}")
 print("Recovered simple-evals cache passed SQLite quick_check")
 PY
-    else
+    elif [ "$task_name" = "ns_aa_lcr" ]; then
         python3 - "$recovery_target" <<'PY'
 import json
 import pathlib
@@ -83,6 +87,23 @@ for path in sorted(root.glob("output-rs*.jsonl-async")):
 if total == 0:
     raise SystemExit("Recovered AA-LCR output contains no completed generations")
 print(f"Recovered {total} completed AA-LCR generations with unique async positions")
+PY
+    else
+        python3 - "$recovery_target/output.jsonl-async" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+positions = []
+with path.open(encoding="utf-8") as stream:
+    for line in stream:
+        positions.append(json.loads(line)["_async_position"])
+if not positions:
+    raise SystemExit("Recovered SciCode output contains no completed generations")
+if len(positions) != len(set(positions)):
+    raise SystemExit("Duplicate async positions in recovered SciCode output")
+print(f"Recovered {len(positions)} completed SciCode generations with unique async positions")
 PY
     fi
 fi

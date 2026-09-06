@@ -129,3 +129,5 @@ def test_nel_runner_is_valid_shell_and_does_not_enable_xtrace() -> None:
     assert "error.code not in {404, 503}" in text
     assert '"type": "function", "function": {"name": "lookup_subscriber"}' in text
     assert "SciCode local sandbox scored code-execution gate passed" in text
+    assert 'recovery_source="$RECOVERY_ACCURACY_DIR/eval-results/scicode"' in text
+    assert "Recovered {len(positions)} completed SciCode generations" in text
