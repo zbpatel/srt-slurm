@@ -235,11 +235,11 @@ def complete(messages, *, tools=None, tool_choice=None):
     raise RuntimeError("target model route did not become ready")
 
 
-first = complete(
-    [user_message],
-    tools=[tool],
-    tool_choice={"type": "function", "function": {"name": "lookup_subscriber"}},
-)
+# Dynamo-vLLM 1.3.1 does not reliably preserve the named-function form of
+# tool_choice for MiniMax-M3.  The generic OpenAI `required` form produced
+# structured calls in the prior capability run, so require a tool call here
+# and validate the selected function below.
+first = complete([user_message], tools=[tool], tool_choice="required")
 assistant = first["choices"][0]["message"]
 tool_calls = assistant.get("tool_calls") or []
 matching_calls = [
