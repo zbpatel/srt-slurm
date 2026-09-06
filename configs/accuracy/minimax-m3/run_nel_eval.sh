@@ -170,10 +170,12 @@ if [ "$task_name" = "ns_aa_lcr" ] || [ "$task_name" = "tau2_bench_telecom" ]; th
     echo "Qwen-235B authorization probe passed"
 fi
 
-# tau2 requires a functioning OpenAI tool-call round trip, not merely an HTTP
-# health check. Require a structured tool call and then a successful
-# tool-result continuation from the exact endpoint before starting the full
-# 114-task x3-trial evaluation.
+# Exercise the exact auto-tool path used by tau2 and preserve the response for
+# audit.  Dynamo 1.3.1's vLLM chat processor does not apply guided decoding for
+# tool_choice=required, so a forced-call probe is not representative of this
+# benchmark.  Model decisions (including choosing plain text instead of a tool
+# call) must be scored by the full 114-task x3-trial evaluation rather than
+# aborting it before any samples run.
 if [ "$task_name" = "tau2_bench_telecom" ]; then
     python3 - "$target_url" "${output_dir}/tool-capability-first-response.json" <<'PY'
 import json
@@ -237,12 +239,11 @@ def complete(messages, *, tools=None, tool_choice=None):
     raise RuntimeError("target model route did not become ready")
 
 
-# Dynamo-vLLM 1.3.1 does not reliably preserve the named-function form of
-# tool_choice for MiniMax-M3.  The generic OpenAI `required` form produced
-# structured calls in the prior capability run, so require a tool call here
-# and validate the selected function below.
-first = complete([user_message], tools=[tool], tool_choice="required")
+# Tau2's LLMAgent uses tool_choice=auto whenever tools are present.
+first = complete([user_message], tools=[tool], tool_choice="auto")
 capture_path.write_text(json.dumps(first, indent=2) + "\n")
+if not first.get("choices"):
+    raise SystemExit("tau2 auto tool-call diagnostic returned no choice")
 assistant = first["choices"][0]["message"]
 tool_calls = assistant.get("tool_calls") or []
 matching_calls = [
@@ -250,27 +251,27 @@ matching_calls = [
     for call in tool_calls
     if call.get("function", {}).get("name") == "lookup_subscriber"
 ]
-if not matching_calls:
-    raise SystemExit("tau2 capability gate did not receive a structured lookup_subscriber call")
-call = matching_calls[0]
-arguments = json.loads(call["function"]["arguments"])
-if arguments.get("account_id") != "test-123":
-    raise SystemExit("tau2 capability gate received the wrong tool arguments")
-
-assistant_message = {
-    "role": "assistant",
-    "content": assistant.get("content"),
-    "tool_calls": tool_calls,
-}
-tool_result = {
-    "role": "tool",
-    "tool_call_id": call["id"],
-    "content": json.dumps({"account_id": "test-123", "status": "active"}),
-}
-second = complete([user_message, assistant_message, tool_result], tools=[tool])
-if not second.get("choices"):
-    raise SystemExit("tau2 capability gate tool-result continuation returned no choice")
-print("tau2 structured tool-call and tool-result continuation gate passed")
+if matching_calls:
+    call = matching_calls[0]
+    assistant_message = {
+        "role": "assistant",
+        "content": assistant.get("content"),
+        "tool_calls": tool_calls,
+    }
+    tool_result = {
+        "role": "tool",
+        "tool_call_id": call["id"],
+        "content": json.dumps({"account_id": "test-123", "status": "active"}),
+    }
+    second = complete([user_message, assistant_message, tool_result], tools=[tool])
+    if not second.get("choices"):
+        raise SystemExit("tau2 tool-result continuation diagnostic returned no choice")
+    print("tau2 auto tool-call and tool-result continuation diagnostic passed")
+else:
+    print(
+        "tau2 auto tool-call diagnostic returned no lookup_subscriber call; "
+        "proceeding to the full benchmark so this model behavior is scored"
+    )
 PY
 fi
 
