@@ -125,4 +125,5 @@ def test_nel_runner_is_valid_shell_and_does_not_enable_xtrace() -> None:
     assert "set -x" not in script.read_text()
     text = script.read_text()
     assert "tau2 structured tool-call and tool-result continuation gate passed" in text
+    assert "error.code not in {404, 503}" in text
     assert "SciCode local sandbox scored code-execution gate passed" in text

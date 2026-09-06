@@ -140,6 +140,8 @@ if [ "$task_name" = "tau2_bench_telecom" ]; then
     python3 - "$target_url" <<'PY'
 import json
 import sys
+import time
+import urllib.error
 import urllib.request
 
 url = sys.argv[1]
@@ -173,15 +175,26 @@ def complete(messages, *, tools=None, tool_choice=None):
         payload["tools"] = tools
     if tool_choice is not None:
         payload["tool_choice"] = tool_choice
-    request = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(request, timeout=180) as response:
-        if response.status != 200:
-            raise RuntimeError(f"target returned HTTP {response.status}")
-        return json.loads(response.read())
+    # Dynamo's health entry can become visible just before the frontend has
+    # finished adding the model route.  The first request then receives a
+    # transient 404 even though the worker is healthy.  Retry only discovery
+    # statuses; all payload/tool-call failures still fail immediately.
+    for attempt in range(60):
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=180) as response:
+                if response.status != 200:
+                    raise RuntimeError(f"target returned HTTP {response.status}")
+                return json.loads(response.read())
+        except urllib.error.HTTPError as error:
+            if error.code not in {404, 503} or attempt == 59:
+                raise
+            time.sleep(2)
+    raise RuntimeError("target model route did not become ready")
 
 
 first = complete([user_message], tools=[tool], tool_choice="required")
