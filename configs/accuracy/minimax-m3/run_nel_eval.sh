@@ -175,14 +175,16 @@ fi
 # tool-result continuation from the exact endpoint before starting the full
 # 114-task x3-trial evaluation.
 if [ "$task_name" = "tau2_bench_telecom" ]; then
-    python3 - "$target_url" <<'PY'
+    python3 - "$target_url" "${output_dir}/tool-capability-first-response.json" <<'PY'
 import json
+import pathlib
 import sys
 import time
 import urllib.error
 import urllib.request
 
 url = sys.argv[1]
+capture_path = pathlib.Path(sys.argv[2])
 tool = {
     "type": "function",
     "function": {
@@ -240,6 +242,7 @@ def complete(messages, *, tools=None, tool_choice=None):
 # structured calls in the prior capability run, so require a tool call here
 # and validate the selected function below.
 first = complete([user_message], tools=[tool], tool_choice="required")
+capture_path.write_text(json.dumps(first, indent=2) + "\n")
 assistant = first["choices"][0]["message"]
 tool_calls = assistant.get("tool_calls") or []
 matching_calls = [

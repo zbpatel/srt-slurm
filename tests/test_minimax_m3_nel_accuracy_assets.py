@@ -130,6 +130,7 @@ def test_nel_runner_is_valid_shell_and_does_not_enable_xtrace() -> None:
     assert "tau2 structured tool-call and tool-result continuation gate passed" in text
     assert "error.code not in {404, 503}" in text
     assert 'tool_choice="required"' in text
+    assert "tool-capability-first-response.json" in text
     assert "SciCode local sandbox scored code-execution gate passed" in text
     assert 'recovery_source="$RECOVERY_ACCURACY_DIR/eval-results/scicode"' in text
     assert "Recovered {len(positions)} completed SciCode generations" in text
@@ -179,6 +180,30 @@ def test_dynamo_frontend_sitecustomize_registers_tolerant_parser() -> None:
         for alias in node.names
     }
     assert "minimax_m3_tolerant_tool_parser" in imports
+
+
+def test_tolerant_minimax_parser_preserves_special_tokens() -> None:
+    source = (ASSET_DIR / "minimax_m3_tolerant_tool_parser.py").read_text()
+    tree = ast.parse(source)
+    parser_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        and node.name == "TolerantMinimaxM3ToolParser"
+    )
+    method = next(
+        node
+        for node in parser_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "adjust_request"
+    )
+    assignments = [node for node in ast.walk(method) if isinstance(node, ast.Assign)]
+    assert any(
+        isinstance(assignment.targets[0], ast.Attribute)
+        and assignment.targets[0].attr == "skip_special_tokens"
+        and isinstance(assignment.value, ast.Constant)
+        and assignment.value.value is False
+        for assignment in assignments
+    )
 
 
 def test_tolerant_minimax_parser_preserves_tagged_and_repairs_mixed_parameters() -> None:

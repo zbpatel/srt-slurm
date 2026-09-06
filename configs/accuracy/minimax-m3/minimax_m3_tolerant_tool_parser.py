@@ -53,6 +53,17 @@ def repair_elided_parameter_tags(model_output: str) -> str:
 class TolerantMinimaxM3ToolParser(MinimaxM3ToolParser):
     """Use upstream MiniMax-M3 parsing after repairing its known wire variant."""
 
+    def adjust_request(self, request: ChatCompletionRequest) -> ChatCompletionRequest:
+        """Keep MiniMax namespace/tool tags available to the parser.
+
+        The upstream Rust MiniMax-M3 parser does not request preservation of
+        special tokens.  Some deployed M3 tokenizers classify the namespace
+        and tool wrapper as special, so the default decode path removes the
+        very delimiters needed by both the upstream and tolerant grammars.
+        """
+        request.skip_special_tokens = False
+        return request
+
     def extract_tool_calls(
         self,
         model_output: str,
