@@ -1,3 +1,5 @@
+import ast
+import re
 import subprocess
 from pathlib import Path
 
@@ -131,3 +133,51 @@ def test_nel_runner_is_valid_shell_and_does_not_enable_xtrace() -> None:
     assert "SciCode local sandbox scored code-execution gate passed" in text
     assert 'recovery_source="$RECOVERY_ACCURACY_DIR/eval-results/scicode"' in text
     assert "Recovered {len(positions)} completed SciCode generations" in text
+
+
+def _load_markup_repair():
+    """Load the dependency-free repair function without importing vLLM."""
+    source = (ASSET_DIR / "minimax_m3_tolerant_tool_parser.py").read_text()
+    tree = ast.parse(source)
+    keep = []
+    for node in tree.body:
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            if any(alias.name == "re" for alias in node.names):
+                keep.append(node)
+        elif isinstance(node, ast.Assign):
+            keep.append(node)
+        elif isinstance(node, ast.FunctionDef) and node.name == "repair_elided_parameter_tags":
+            keep.append(node)
+    namespace: dict = {}
+    exec(compile(ast.Module(keep, type_ignores=[]), str(ASSET_DIR), "exec"), namespace)
+    return namespace["repair_elided_parameter_tags"]
+
+
+def test_tolerant_minimax_parser_repairs_only_elided_tool_parameters() -> None:
+    repair = _load_markup_repair()
+    ns = "]<]minimax[>["
+    broken = (
+        "prefix"
+        f"{ns}<tool_call>{ns}<invoke name=\"lookup_subscriber\">"
+        f"{ns}test-123{ns}</account_id>{ns}</invoke>{ns}</tool_call>"
+    )
+    expected = broken.replace(
+        f"{ns}test-123{ns}</account_id>",
+        f"{ns}<account_id>test-123{ns}</account_id>",
+    )
+    assert repair(broken) == expected
+    assert repair("ordinary answer") == "ordinary answer"
+
+
+def test_tolerant_minimax_parser_preserves_tagged_and_repairs_mixed_parameters() -> None:
+    repair = _load_markup_repair()
+    ns = "]<]minimax[>["
+    mixed = (
+        f"{ns}<tool_call>{ns}<invoke name=\"f\">"
+        f"{ns}7{ns}</count>"
+        f"{ns}<label>ready{ns}</label>"
+        f"{ns}</invoke>{ns}</tool_call>"
+    )
+    repaired = repair(mixed)
+    assert f"{ns}<count>7{ns}</count>" in repaired
+    assert f"{ns}<label>ready{ns}</label>" in repaired
