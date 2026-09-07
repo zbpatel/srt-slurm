@@ -55,6 +55,8 @@ target:
             output_dir: __NEL_OUTPUT_DIR__
           name: request_logging
         - config:
+            params_to_remove:
+              - spaces_between_special_tokens
             params_to_add:
               chat_template_kwargs:
                 thinking_mode: enabled

@@ -61,6 +61,12 @@ def test_mmmu_pro_sampling_and_multimodal_methodology() -> None:
     assert params["extra"]["use_sandbox"] is False
     assert params["extra"]["server_type"] == "vllm"
     assert params["extra"]["skip_data_dir_check"] is True
+    payload_modifier = next(
+        item["config"]
+        for item in config["target"]["api_endpoint"]["adapter_config"]["interceptors"]
+        if item["name"] == "payload_modifier"
+    )
+    assert payload_modifier["params_to_remove"] == ["spaces_between_special_tokens"]
     _assert_minimax_reasoning(config)
 
 
